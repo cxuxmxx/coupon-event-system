@@ -1,0 +1,4 @@
+rootProject.name = 'joonggo-server'
+include("joonggo-admin")
+include("joonggo-api")
+include("joonggo-core")
