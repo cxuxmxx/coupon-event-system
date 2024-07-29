@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 
+import static me.project.joonggocore.exception.ErrorCode.INVALID_COUPON_ISSUE_DATE;
+import static me.project.joonggocore.exception.ErrorCode.INVALID_COUPON_QUANTITY;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CouponTest {
@@ -133,7 +135,9 @@ class CouponTest {
                 .issuedEndAt(LocalDateTime.now().plusDays(2))
                 .build();
 
-        Assertions.assertThrows(AppException.class, coupon::issue);
+        AppException appException = Assertions.assertThrows(AppException.class, coupon::issue);
+        assertThat(appException.getErrorCode()).isEqualTo(INVALID_COUPON_QUANTITY);
+
     }
 
     @Test
@@ -147,7 +151,8 @@ class CouponTest {
                 .issuedEndAt(LocalDateTime.now().minusDays(1))
                 .build();
 
-        Assertions.assertThrows(AppException.class, coupon::issue);
+        AppException appException = Assertions.assertThrows(AppException.class, coupon::issue);
+        assertThat(appException.getErrorCode()).isEqualTo(INVALID_COUPON_ISSUE_DATE);
     }
 
     @Test
@@ -161,7 +166,9 @@ class CouponTest {
                 .issuedEndAt(LocalDateTime.now().plusDays(3))
                 .build();
 
-        Assertions.assertThrows(AppException.class, coupon::issue);
+        AppException appException = Assertions.assertThrows(AppException.class, coupon::issue);
+        assertThat(appException.getErrorCode()).isEqualTo(INVALID_COUPON_ISSUE_DATE);
+
     }
 
 
