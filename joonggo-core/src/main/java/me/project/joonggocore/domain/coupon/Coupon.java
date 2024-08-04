@@ -23,28 +23,21 @@ public class Coupon extends BaseEntity {
     @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private CouponType couponType;
 
-    @Column(nullable = false)
     private LocalDateTime issuedTime;
 
     private Integer totalQuantity;
 
-    @Column(nullable = false)
     private int issuedQuantity;
 
-    @Column(nullable = false)
     private int discountAmt;
 
-    @Column(nullable = false)
     private int minAvailableAmt;
 
-    @Column(nullable = false)
     private LocalDateTime issuedStartAt;
 
-    @Column(nullable = false)
     private LocalDateTime issuedEndAt;
 
     public boolean isAvailableIssueQuantity() {
