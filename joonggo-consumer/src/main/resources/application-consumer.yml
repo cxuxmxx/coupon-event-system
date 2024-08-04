@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: joonggo-consumer
+
+server:
+  port: 8002

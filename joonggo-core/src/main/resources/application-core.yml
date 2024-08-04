@@ -1,0 +1,79 @@
+spring:
+  application:
+    name: joonggo-core
+
+  config:
+    activate:
+      on-profile: dev
+
+  datasource:
+    hikari:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      jdbc-url: jdbc:mysql://localhost:3306/joonggo?useUnicode=yes&characterEncoding=UTF-8&rewriteBatchedStatements=true
+      username: joonggo_admin
+      password: 1234
+      maximum-pool-size: 10
+      max-lifetime: 30000
+      connection-timeout: 3000
+
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: none
+    defer-datasource-initialization: true
+    properties:
+      hibernate:
+        format_sql: true
+  data:
+    redis:
+      port: 6380
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
+  servlet:
+    multipart:
+      max-file-size: 10GB
+      max-request-size: 20GB
+
+  cloud:
+    aws:
+      stack:
+        auto: false
+      credentials:
+        access-key: AKIAQ3SFZZDWF7JN7BT7
+        secret-key: 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
+      region:
+        static: ap-northeast-2
+      s3:
+        bucket: gpt-service-bucket
+jwt:
+  access:
+    secretKey: 5831FCD681F6A42B9FAFD7B3BEFB920538C6BEE360294067F3EAD0413965566E
+    expireMs: 3600000
+  refresh:
+    secretKey: ZcFkfwJfsSGKVxGvq4w2eItsngUxwkZUaqtUw3n3oP4=
+    expireMs: 604800000
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  datasource:
+    jbdc-url: jdbc:h2:mem:test
+    driver-class-name: org.h2.Driver
+    username: test
+    password: 12
+
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+  data:
+    redis:
+      port: 6380
