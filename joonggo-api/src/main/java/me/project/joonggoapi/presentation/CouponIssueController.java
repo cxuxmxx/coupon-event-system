@@ -1,7 +1,7 @@
 package me.project.joonggoapi.presentation;
 
 import lombok.RequiredArgsConstructor;
-import me.project.joonggoapi.domain.application.CouponIssueRequestService;
+import me.project.joonggoapi.application.CouponIssueRequestService;
 import me.project.joonggoapi.dto.CouponIssueRequest;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
