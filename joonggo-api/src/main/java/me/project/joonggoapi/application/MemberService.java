@@ -1,4 +1,4 @@
-package me.project.joonggoapi.domain.application;
+package me.project.joonggoapi.application;
 
 import lombok.RequiredArgsConstructor;
 import me.project.joonggocore.domain.member.*;

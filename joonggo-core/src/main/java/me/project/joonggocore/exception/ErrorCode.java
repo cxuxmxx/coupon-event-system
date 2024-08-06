@@ -14,7 +14,11 @@ public enum ErrorCode {
     INVALID_PASSWORD(HttpStatus.UNAUTHORIZED, "패스워드가 잘못되었습니다."),
     NOT_FOUND_TRADE(HttpStatus.NOT_FOUND, "존재하지 않는 거래입니다."),
     INVALID_MEMBER(HttpStatus.UNAUTHORIZED, "접근할 수 없는 거래 입니다."),
-    INVALID_TOKEN(HttpStatus.BAD_REQUEST, "유효하지 않은 토큰입니다.");
+    INVALID_TOKEN(HttpStatus.BAD_REQUEST, "유효하지 않은 토큰입니다."),
+    INVALID_COUPON_QUANTITY(HttpStatus.BAD_REQUEST, "발급 가능한 수량을 초과합니다."),
+    INVALID_COUPON_ISSUE_DATE(HttpStatus.BAD_REQUEST, "발급 가능한 일자가 아닙니다."),
+    NOT_FOUND_COUPON(HttpStatus.BAD_REQUEST, "존재하지 않은 쿠폰입니다."),
+    ALREADY_ISSUED_USER(HttpStatus.BAD_REQUEST, "이미 발급받은 유저입니다.");
 
     private final HttpStatus httpStatus;
     private final String message;
