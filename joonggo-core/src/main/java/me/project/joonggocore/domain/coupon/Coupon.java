@@ -46,18 +46,26 @@ public class Coupon extends BaseEntity {
     }
 
     public boolean isAvailableIssueDate() {
-        LocalDateTime now = LocalDateTime.now();
-        return now.isAfter(issuedStartAt) && now.isBefore(issuedEndAt);
+        return isAvailableIssueDate(LocalDateTime.now());
+    }
+
+    private boolean isAvailableIssueDate(LocalDateTime requestedAt) {
+        return issuedStartAt != null && issuedEndAt != null
+                && requestedAt.isAfter(issuedStartAt) && requestedAt.isBefore(issuedEndAt);
     }
 
     public void issue() {
+        issue(LocalDateTime.now());
+    }
+
+    public void issue(LocalDateTime requestedAt) {
         if (!isAvailableIssueQuantity()) {
             throw new AppException(ErrorCode.INVALID_COUPON_QUANTITY,
                     ErrorCode.INVALID_COUPON_QUANTITY.getMessage()
                             + "total : %s, issued: %s".formatted(totalQuantity, issuedQuantity));
         }
 
-        if (!isAvailableIssueDate()) {
+        if (!isAvailableIssueDate(requestedAt)) {
             throw new AppException(ErrorCode.INVALID_COUPON_ISSUE_DATE,
                     ErrorCode.INVALID_COUPON_ISSUE_DATE.getMessage()
                             + "issueStartAt : %s, issueEndAt: %s".formatted(issuedStartAt, issuedEndAt));

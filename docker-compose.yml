@@ -3,7 +3,9 @@ services:
   redis:
     container_name: joonggo-redis
     image: redis:7.2-alpine
-    command: redis-server --port 6380
+    command: redis-server --port 6380 --appendonly yes
+    volumes:
+      - redis-data:/data
     labels:
       - "name=redis"
       - "mode=standalone"
@@ -12,7 +14,7 @@ services:
   mysql:
     container_name: joonggo-mysql
     image: ubuntu/mysql:edge
-    command: mysqld --character-set-server=utf8mb4 --collaboration-server=utf8mb4_unicode_ci --explicit_defaults_for_timestamp=1
+    command: mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --explicit_defaults_for_timestamp=1
     ports:
       - 3306:3306
     environment:
@@ -23,3 +25,6 @@ services:
       - TZ=UTC
     volumes:
       - ./mysql/init:/docker-entrypoint-initdb.d
+
+volumes:
+  redis-data:
