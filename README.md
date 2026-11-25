@@ -4,6 +4,11 @@
 
 ## 아키텍처
 
+![선착순 쿠폰 발급 시스템 아키텍처](docs/images/coupon-issue-architecture.png)
+
+<details>
+<summary>Mermaid 다이어그램 보기</summary>
+
 ```mermaid
 flowchart TB
     Client["사용자"]
@@ -16,17 +21,21 @@ flowchart TB
         Requests["Issue Request Queue"]
         Issues["Issue Queue"]
         Status["발급 상태"]
+        Idempotency["멱등키 매핑"]
     end
 
     Client -->|"발급 요청 · 결과 조회"| API
     API -->|"발급 기간 확인"| Policy
-    API -->|"접수 요청 등록"| Requests
+    API -->|"멱등키 확인"| Idempotency
+    API -->|"새 요청 등록"| Requests
     Requests -->|"워커가 Lua로 FIFO 이관"| Issues
     Issues -->|"워커가 큐의 첫 요청 조회"| Worker
     Worker -->|"수량 차감 · 발급 이력 저장"| DB
     Worker -->|"DB 커밋 후 결과 기록"| Status
     API -->|"요청 ID로 조회"| Status
 ```
+
+</details>
 
 쿠폰 정책이 캐시에 없으면 API 서버가 DB에서 발급 기간을 읽어 캐시에 저장합니다. API 서버는 접수 시각이 발급 기간 안에 든 요청만 큐에 등록합니다.
 
