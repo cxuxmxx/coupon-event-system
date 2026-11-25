@@ -17,12 +17,22 @@ public class AsyncCouponIssueService {
     private final CouponIssuePolicyCache policyCache;
     private final CouponIssueQueue queue;
 
-    public Result submit(long couponId, long memberId) {
-        UUID requestId = UUID.randomUUID();
-        LocalDateTime requestedAt = LocalDateTime.now();
-        policyCache.validate(couponId, requestedAt);
-        queue.enqueue(new CouponIssueJob(requestId, couponId, memberId, requestedAt));
-        return new Result(requestId, Status.PENDING, null);
+    public Result submit(long couponId, long memberId, String idempotencyKey) {
+        Optional<CouponIssueJob> existing = idempotencyKey == null
+                ? Optional.empty() : queue.findByIdempotencyKey(idempotencyKey);
+        CouponIssueJob job = existing.orElseGet(() -> {
+            LocalDateTime requestedAt = LocalDateTime.now();
+            policyCache.validate(couponId, requestedAt);
+            return queue.enqueue(new CouponIssueJob(UUID.randomUUID(), couponId, memberId,
+                    requestedAt, idempotencyKey));
+        });
+        if (job.couponId() != couponId || job.memberId() != memberId) {
+            throw new IdempotencyConflictException();
+        }
+        return new Result(job.id(), Status.PENDING, null);
+    }
+
+    public static class IdempotencyConflictException extends RuntimeException {
     }
 
     public Optional<Result> findResult(UUID requestId) {
