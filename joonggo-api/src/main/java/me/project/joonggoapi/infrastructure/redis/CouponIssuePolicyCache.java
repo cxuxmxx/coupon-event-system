@@ -1,4 +1,4 @@
-package me.project.joonggocore.domain.coupon.queue;
+package me.project.joonggoapi.infrastructure.redis;
 
 import lombok.RequiredArgsConstructor;
 import me.project.joonggocore.domain.coupon.Coupon;

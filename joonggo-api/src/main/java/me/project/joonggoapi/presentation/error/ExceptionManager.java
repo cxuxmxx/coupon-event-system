@@ -1,6 +1,7 @@
-package me.project.joonggocore.exception;
+package me.project.joonggoapi.presentation.error;
 
-import me.project.joonggocore.util.ApiResponse;
+import me.project.joonggocore.exception.AppException;
+import org.springframework.http.HttpStatus;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -16,13 +17,17 @@ public class ExceptionManager {
     @ExceptionHandler(value = AppException.class)
     public ResponseEntity<?> appExcetionManager(AppException e) {
         ErrorResponse errorResponse = new ErrorResponse(e.getErrorCode(), e.getMessage());
-        return ResponseEntity.status(e.getErrorCode().getHttpStatus())
+        HttpStatus status = switch (e.getErrorCode()) {
+            case NOT_FOUND_MEMBER, NOT_FOUND_EXERCISE, NOT_FOUND_TRADE -> HttpStatus.NOT_FOUND;
+            case INVALID_PASSWORD, INVALID_MEMBER -> HttpStatus.UNAUTHORIZED;
+            default -> HttpStatus.BAD_REQUEST;
+        };
+        return ResponseEntity.status(status)
                 .body(ApiResponse.error("ERROR", errorResponse));
     }
 
     @ExceptionHandler(value = MethodArgumentNotValidException.class)
     public ResponseEntity<?> methodArgumentNotValidExceptionManager(MethodArgumentNotValidException e) {
-        ErrorResponse errorResponse = new ErrorResponse(e.getMessage());
         return ResponseEntity.status(e.getStatusCode())
                 .body(ApiResponse.error("ERROR", extractErrorMessage(e)));
     }

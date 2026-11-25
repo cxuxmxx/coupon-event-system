@@ -1,8 +1,9 @@
-package me.project.joonggocore.exception;
+package me.project.joonggoapi.presentation.error;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import me.project.joonggocore.exception.ErrorCode;
 
 @NoArgsConstructor
 @AllArgsConstructor
