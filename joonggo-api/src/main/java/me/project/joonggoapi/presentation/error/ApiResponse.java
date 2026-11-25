@@ -1,4 +1,4 @@
-package me.project.joonggocore.util;
+package me.project.joonggoapi.presentation.error;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
