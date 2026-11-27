@@ -54,13 +54,15 @@ API 서버와 발급 워커는 각각 `joonggo-core`에 의존하며 별도 프�
 
 ## 발급 API
 
+[쿠폰 API 인증 설정](docs/coupon-api-auth.md)을 참고하세요.
+
 | 메서드와 경로 | 응답 |
 | --- | --- |
 | `POST /api/v2/coupon/issue` | `202 Accepted`, 요청 ID와 조회 URL |
 | `GET /api/v2/coupon/issue/{requestId}` | `PENDING`, `ISSUED`, 또는 실패 코드와 함께 `REJECTED` |
 | `POST /api/v1/coupon/issue` | 동기 발급 결과 |
 
-v2는 `couponId`와 `memberId`를 요청 본문으로 받습니다. 완료 결과는 24시간 동안 조회할 수 있습니다. v2 요청은 FIFO 순서로 처리합니다. v1과 v2는 DB의 같은 쿠폰 재고를 사용합니다.
+v2는 요청 본문에서 `couponId`를 받고 토큰에서 회원 ID를 확인합니다. 완료 결과는 24시간 동안 조회할 수 있습니다. v2 요청은 FIFO 순서로 처리합니다. v1과 v2는 DB의 같은 쿠폰 재고를 사용합니다.
 
 ### 발급 요청 재시도
 

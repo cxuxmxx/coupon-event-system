@@ -10,6 +10,9 @@ import me.project.joonggocore.service.CouponIssueOutbox;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -28,6 +31,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = "spring.data.redis.database=14")
 @AutoConfigureMockMvc
 class CouponIssueIdempotencyTest {
+
+    @MockBean
+    private JwtDecoder decoder;
 
     private static final String ENDPOINT = "/api/v2/coupon/issue";
 
@@ -75,8 +81,8 @@ class CouponIssueIdempotencyTest {
             executor.shutdownNow();
         }
 
-        mvc.perform(post(ENDPOINT).header("Idempotency-Key", key)
-                .contentType("application/json").content(body(couponId, 2)))
+        mvc.perform(post(ENDPOINT).with(jwt().jwt(token -> token.subject("1"))).header("Idempotency-Key", key)
+                .contentType("application/json").content(body(couponId + 1, 1)))
                 .andExpect(status().isConflict());
 
         UUID id = UUID.fromString(json.readTree(first.getResponse().getContentAsString())
@@ -84,7 +90,7 @@ class CouponIssueIdempotencyTest {
         assertThat(queue.status(id)).isNull();
         var pending = outbox.pending(0, 100);
         assertThat(pending).hasSize(1);
-        assertThat(outbox.findByKey(key)).isPresent();
+        assertThat(outbox.findByKey(1, key)).isPresent();
         pending.forEach(row -> queue.enqueue(row.job()));
         queue.transfer(100);
         CouponIssueJob job = queue.peek(couponId);
@@ -97,13 +103,26 @@ class CouponIssueIdempotencyTest {
                 .isEqualTo(first.getResponse().getContentAsString());
         queue.transfer(100);
         assertThat(queue.peek(couponId)).isNull();
-        mvc.perform(get(first.getResponse().getHeader("Location")))
+        mvc.perform(get(first.getResponse().getHeader("Location")).with(jwt().jwt(token -> token.subject("1"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ISSUED"));
+        mvc.perform(get(first.getResponse().getHeader("Location"))
+                        .with(jwt().jwt(token -> token.subject("2"))))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(first.getResponse().getHeader("Location")))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(ENDPOINT).with(jwt().jwt(token -> token.subject("1")))
+                        .contentType("application/json").content(body(couponId, 2)))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(ENDPOINT).with(jwt().jwt(token -> token.subject("2")))
+                        .header("Idempotency-Key", key)
+                        .contentType("application/json").content(body(couponId, 2)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.requestId").value(org.hamcrest.Matchers.not(id.toString())));
     }
 
     private MvcResult accepted(String key, long couponId) throws Exception {
-        return mvc.perform(post(ENDPOINT).header("Idempotency-Key", key)
+        return mvc.perform(post(ENDPOINT).with(jwt().jwt(token -> token.subject("1"))).header("Idempotency-Key", key)
                 .contentType("application/json").content(body(couponId, 1)))
                 .andExpect(status().isAccepted()).andReturn();
     }
