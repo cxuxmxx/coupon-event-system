@@ -6,7 +6,8 @@ import me.project.joonggocore.util.BaseEntity;
 
 @Builder
 @Getter
-@Table(name = "coupon_issue")
+@Table(name = "coupon_issue", uniqueConstraints = @UniqueConstraint(
+        name = "uk_coupon_issue_coupon_member", columnNames = {"coupon_id", "member_id"}))
 @AllArgsConstructor
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
@@ -16,8 +17,10 @@ public class CouponIssue extends BaseEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "coupon_id", nullable = false)
     private Long couponId;
 
+    @Column(name = "member_id", nullable = false)
     private Long memberId;
 
 
