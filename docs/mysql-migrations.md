@@ -19,3 +19,20 @@ HAVING COUNT(*) > 1 OR coupon_id IS NULL OR member_id IS NULL;
 docker compose exec -T mysql mysql -ujoonggo_admin -p1234 joonggo \
   < mysql/migrations/V001__unique_coupon_issue.sql
 ```
+
+## V002 · 발급 접수 원장과 Outbox
+
+`V002__coupon_issue_receipt_outbox.sql`로 원장 테이블을 만듭니다. 발급 완료 전까지 같은 행을 Outbox로 사용합니다. 접수를 MySQL에 커밋한 뒤 HTTP 202를 반환하고, 워커가 미완료 행을 Redis에 넣습니다. Redis에 장애가 발생하거나 큐를 유실해도 남은 행을 다시 발행합니다. 발급 이력과 요청의 성공 상태는 같은 트랜잭션에서 커밋합니다.
+
+기존 버전의 Redis 대기열은 업데이트 전에 소진하세요. 그렇지 않으면 새 원장에 기록된 요청만 Redis 전체 유실에서 복구할 수 있습니다. 최근 완료 결과는 24시간 동안 조회할 수 있으며, 원장 행 자체는 보존됩니다.
+
+## MySQL 통합 테스트 실행
+
+테스트가 스키마를 생성하고 종료할 때 삭제합니다. 테스트 전용 빈 스키마를 준비하고 다음 명령을 실행합니다.
+
+```bash
+COUPON_TEST_MYSQL_URL=jdbc:mysql://127.0.0.1:3306/coupon_test \
+COUPON_TEST_MYSQL_USER=coupon_test \
+COUPON_TEST_MYSQL_PASSWORD=비밀번호 \
+bash gradlew :joonggo-consumer:test --tests '*CouponIssueMysqlIntegrationTest'
+```

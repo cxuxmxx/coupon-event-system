@@ -8,6 +8,7 @@ import me.project.joonggocore.domain.coupon.repository.mysql.CouponIssueJpaRepos
 import me.project.joonggocore.domain.coupon.repository.mysql.CouponJpaRepository;
 import me.project.joonggocore.domain.member.Member;
 import me.project.joonggocore.domain.member.repository.MemberRepository;
+import me.project.joonggocore.service.CouponIssueOutbox;
 import me.project.joonggocore.service.CouponIssueService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -40,6 +41,7 @@ class CouponIssueMysqlIntegrationTest {
     @Autowired CouponIssueJpaRepository issues;
     @Autowired MemberRepository members;
     @Autowired RedissonClient redis;
+    @Autowired CouponIssueOutbox outbox;
 
     @Test
     void enforcesInventoryMemberUniquenessAndReplayAfterCommit() {
@@ -55,7 +57,7 @@ class CouponIssueMysqlIntegrationTest {
         queue.transfer(100);
         service.issueQueuedCoupon(jobs.get(0));
 
-        var worker = new CouponIssueWorker(queue, service, redis);
+        var worker = new CouponIssueWorker(queue, service, outbox, redis);
         for (int i = 0; i < 10; i++) {
             worker.poll();
         }
