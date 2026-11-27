@@ -45,6 +45,12 @@ public class CouponIssueService {
         couponIssueJpaRepository.save(CouponIssue.createCouponIssue(job.couponId(), job.memberId()));
     }
 
+    @Transactional
+    public boolean hasIssuedCoupon(CouponIssueJob job) {
+        requireCoupon(couponJpaRepository.findByIdForUpdate(job.couponId()));
+        return couponIssueRepository.findFirstCouponIssue(job.couponId(), job.memberId()) != null;
+    }
+
     private void validateAlreadyIssuedCoupon(long couponId, long memberId) {
         CouponIssue firstCouponIssue = couponIssueRepository.findFirstCouponIssue(couponId, memberId);
         if (firstCouponIssue != null)

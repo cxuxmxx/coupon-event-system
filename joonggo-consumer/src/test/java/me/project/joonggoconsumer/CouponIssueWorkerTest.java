@@ -14,11 +14,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessResourceFailureException;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
@@ -68,11 +69,13 @@ class CouponIssueWorkerTest {
         doThrow(new DataAccessResourceFailureException("database unavailable"))
                 .when(unavailable).issueQueuedCoupon(first);
         CouponIssueWorker failedWorker = new CouponIssueWorker(queue, unavailable, redis);
-        assertThatThrownBy(failedWorker::poll).isInstanceOf(DataAccessResourceFailureException.class);
+        failedWorker.poll();
+        assertThat(queue.retry(first).attempts()).isEqualTo(1);
         assertThat(queue.peek()).isEqualTo(first);
         assertThat(queue.status(first.id())).isEqualTo("PENDING");
 
         CouponIssueWorker worker = new CouponIssueWorker(queue, issueService, redis);
+        worker.useClock(Clock.offset(Clock.systemUTC(), Duration.ofMinutes(1)));
         worker.poll();
 
         assertThat(queue.status(first.id())).isEqualTo("ISSUED");
