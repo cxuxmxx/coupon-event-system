@@ -57,8 +57,9 @@ class CouponIssueMysqlIntegrationTest {
         queue.transfer(100);
         service.issueQueuedCoupon(jobs.get(0));
 
-        var worker = new CouponIssueWorker(queue, service, outbox, redis);
+        var worker = new CouponIssueWorker(queue, service, outbox, redis, new CouponLaneExecutor(Runnable::run));
         for (int i = 0; i < 10; i++) {
+            worker.useClock(java.time.Clock.offset(java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(i)));
             worker.poll();
         }
         assertThat(queue.status(jobs.get(0).id())).isEqualTo("ISSUED");

@@ -87,16 +87,16 @@ class CouponIssueIdempotencyTest {
         assertThat(outbox.findByKey(key)).isPresent();
         pending.forEach(row -> queue.enqueue(row.job()));
         queue.transfer(100);
-        CouponIssueJob job = queue.peek();
+        CouponIssueJob job = queue.peek(couponId);
         assertThat(job.id()).isEqualTo(id);
         assertThat(queue.complete(job, outbox.finish(job, "ISSUED"))).isTrue();
-        assertThat(queue.peek()).isNull();
+        assertThat(queue.peek(couponId)).isNull();
         assertThat(outbox.find(id).orElseThrow().getCompletedAt()).isNotNull();
 
         assertThat(accepted(key, couponId).getResponse().getContentAsString())
                 .isEqualTo(first.getResponse().getContentAsString());
         queue.transfer(100);
-        assertThat(queue.peek()).isNull();
+        assertThat(queue.peek(couponId)).isNull();
         mvc.perform(get(first.getResponse().getHeader("Location")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ISSUED"));
