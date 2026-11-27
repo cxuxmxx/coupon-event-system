@@ -40,12 +40,13 @@ public class AsyncCouponIssueService {
                 .map(value -> switch (value) {
                     case "PENDING" -> new Result(requestId, Status.PENDING, null);
                     case "ISSUED" -> new Result(requestId, Status.ISSUED, null);
+                    case "TECHNICAL_FAILURE" -> new Result(requestId, Status.FAILED, value);
                     default -> new Result(requestId, Status.REJECTED, value);
                 });
     }
 
     public enum Status {
-        PENDING, ISSUED, REJECTED
+        PENDING, ISSUED, REJECTED, FAILED
     }
 
     public record Result(UUID requestId, Status status, String errorCode) {

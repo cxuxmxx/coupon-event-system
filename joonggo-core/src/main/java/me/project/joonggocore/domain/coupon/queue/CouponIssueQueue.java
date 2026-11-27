@@ -14,6 +14,7 @@ public class CouponIssueQueue {
 
     private static final String PREFIX = "coupon:{issue}:";
     private static final String REQUESTS = PREFIX + "requests";
+    private static final String DEAD_LETTERS = PREFIX + "dead-letters";
     private static final String ISSUES = PREFIX + "jobs";
     private static final String ENQUEUE = """
             if not redis.call('SET', KEYS[2], 'PENDING', 'NX') then return 0 end
@@ -41,10 +42,20 @@ public class CouponIssueQueue {
     private static final String COMPLETE = """
             if redis.call('LINDEX', KEYS[1], 0) ~= ARGV[1] then return 0 end
             redis.call('SET', KEYS[2], ARGV[2], 'EX', 86400)
-            if KEYS[3] and redis.call('GET', KEYS[3]) == ARGV[1] then
-                redis.call('EXPIRE', KEYS[3], 86400)
+            if redis.call('GET', KEYS[4]) == ARGV[1] then
+                redis.call('EXPIRE', KEYS[4], 86400)
+            end
+            redis.call('DEL', KEYS[3])
+            if ARGV[2] == 'TECHNICAL_FAILURE' then
+                redis.call('HSET', KEYS[5], ARGV[3], ARGV[1])
             end
             redis.call('LPOP', KEYS[1])
+            return 1
+            """;
+
+    private static final String DEFER = """
+            if redis.call('LINDEX', KEYS[1], 0) ~= ARGV[1] then return 0 end
+            redis.call('SET', KEYS[2], ARGV[2])
             return 1
             """;
 
@@ -87,17 +98,40 @@ public class CouponIssueQueue {
         return value == null ? null : CouponIssueJob.decode(value);
     }
 
+    public Retry retry(CouponIssueJob job) {
+        String value = redis.<String>getBucket(retryKey(job.id()), StringCodec.INSTANCE).get();
+        if (value == null) {
+            return new Retry(0, 0);
+        }
+        String[] parts = value.split(":");
+        return new Retry(Integer.parseInt(parts[0]), Long.parseLong(parts[1]));
+    }
+
+    public void defer(CouponIssueJob job, Retry retry) {
+        scripts.eval(RScript.Mode.READ_WRITE, DEFER, RScript.ReturnType.INTEGER,
+                List.of(ISSUES, retryKey(job.id())), job.encode(),
+                retry.attempts() + ":" + retry.nextAttemptAt());
+    }
+
+    public record Retry(int attempts, long nextAttemptAt) {
+    }
+
     public boolean complete(CouponIssueJob job, String result) {
-        List<Object> keys = job.idempotencyKey() == null
-                ? List.of(ISSUES, statusKey(job.id()))
-                : List.of(ISSUES, statusKey(job.id()), idempotencyRedisKey(job.idempotencyKey()));
+        String mappingKey = job.idempotencyKey() == null ? statusKey(job.id())
+                : idempotencyRedisKey(job.idempotencyKey());
+        List<Object> keys = List.of(ISSUES, statusKey(job.id()), retryKey(job.id()),
+                mappingKey, DEAD_LETTERS);
         Long removed = scripts.eval(RScript.Mode.READ_WRITE, COMPLETE, RScript.ReturnType.INTEGER,
-                keys, job.encode(), result);
+                keys, job.encode(), result, job.id().toString());
         return removed == 1;
     }
 
     private static String idempotencyRedisKey(String key) {
         return PREFIX + "idempotency:" + key;
+    }
+
+    private static String retryKey(UUID id) {
+        return PREFIX + "retry:" + id;
     }
 
     private static String statusKey(UUID id) {
