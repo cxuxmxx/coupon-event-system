@@ -24,7 +24,7 @@ public class RedisConfig {
 
     @Bean(destroyMethod = "shutdown")
     public RedissonClient redissonClient() {
-        Config config = new Config();
+        Config config = new Config().setLazyInitialization(true);
         var server = config.useSingleServer().setAddress("redis://" + host + ":" + port)
                 .setDatabase(database);
         if (!password.isEmpty()) {

@@ -7,6 +7,7 @@ import me.project.joonggocore.domain.coupon.repository.mysql.CouponIssueJpaRepos
 import me.project.joonggocore.domain.coupon.repository.mysql.CouponJpaRepository;
 import me.project.joonggocore.domain.member.Member;
 import me.project.joonggocore.domain.member.repository.MemberRepository;
+import me.project.joonggocore.service.CouponIssueOutbox;
 import me.project.joonggocore.service.CouponIssueService;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RedissonClient;
@@ -43,6 +44,8 @@ class CouponIssueWorkerTest {
     private MemberRepository members;
     @Autowired
     private RedissonClient redis;
+    @Autowired
+    private CouponIssueOutbox outbox;
 
     @Test
     void processesInFifoOrderAndDoesNotDecrementStockAgainOnReplay() {
@@ -65,16 +68,16 @@ class CouponIssueWorkerTest {
         assertThat(queue.status(first.id())).isEqualTo("PENDING");
         assertThat(queue.peek()).isNull();
 
-        CouponIssueService unavailable = mock(CouponIssueService.class);
+        CouponIssueOutbox unavailable = mock(CouponIssueOutbox.class);
         doThrow(new DataAccessResourceFailureException("database unavailable"))
-                .when(unavailable).issueQueuedCoupon(first);
-        CouponIssueWorker failedWorker = new CouponIssueWorker(queue, unavailable, redis);
+                .when(unavailable).issue(first);
+        CouponIssueWorker failedWorker = new CouponIssueWorker(queue, issueService, unavailable, redis);
         failedWorker.poll();
         assertThat(queue.retry(first).attempts()).isEqualTo(1);
         assertThat(queue.peek()).isEqualTo(first);
         assertThat(queue.status(first.id())).isEqualTo("PENDING");
 
-        CouponIssueWorker worker = new CouponIssueWorker(queue, issueService, redis);
+        CouponIssueWorker worker = new CouponIssueWorker(queue, issueService, outbox, redis);
         worker.useClock(Clock.offset(Clock.systemUTC(), Duration.ofMinutes(1)));
         worker.poll();
 

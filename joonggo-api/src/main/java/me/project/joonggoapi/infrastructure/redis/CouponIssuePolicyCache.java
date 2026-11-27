@@ -8,6 +8,7 @@ import me.project.joonggocore.service.CouponIssueService;
 import org.redisson.api.RBucket;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
+import org.redisson.client.RedisException;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -22,16 +23,34 @@ public class CouponIssuePolicyCache {
 
     public void validate(long couponId, LocalDateTime requestedAt) {
         RBucket<String> bucket = redis.getBucket("coupon:policy:" + couponId, StringCodec.INSTANCE);
-        String policy = bucket.get();
+        String policy;
+        try {
+            policy = bucket.get();
+        } catch (RedisException unavailable) {
+            validatePeriod(readPolicy(couponId), requestedAt);
+            return;
+        }
         if (policy == null) {
-            Coupon coupon = issueService.findCouponById(couponId);
-            if (coupon.getIssuedStartAt() == null || coupon.getIssuedEndAt() == null) {
-                throw invalidDate();
+            policy = readPolicy(couponId);
+            try {
+                bucket.set(policy, 30, TimeUnit.SECONDS);
+            } catch (RedisException unavailable) {
+                // The DB policy remains usable if publication to cache fails.
             }
-            policy = coupon.getIssuedStartAt() + "|" + coupon.getIssuedEndAt();
-            bucket.set(policy, 30, TimeUnit.SECONDS);
         }
 
+        validatePeriod(policy, requestedAt);
+    }
+
+    private String readPolicy(long couponId) {
+        Coupon coupon = issueService.findCouponById(couponId);
+        if (coupon.getIssuedStartAt() == null || coupon.getIssuedEndAt() == null) {
+            throw invalidDate();
+        }
+        return coupon.getIssuedStartAt() + "|" + coupon.getIssuedEndAt();
+    }
+
+    private void validatePeriod(String policy, LocalDateTime requestedAt) {
         String[] bounds = policy.split("\\|");
         if (!requestedAt.isAfter(LocalDateTime.parse(bounds[0]))
                 || !requestedAt.isBefore(LocalDateTime.parse(bounds[1]))) {

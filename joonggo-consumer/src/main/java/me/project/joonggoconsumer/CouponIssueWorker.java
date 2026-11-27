@@ -6,6 +6,8 @@ import me.project.joonggocore.domain.coupon.queue.CouponIssueJob;
 import me.project.joonggocore.domain.coupon.queue.CouponIssueQueue;
 import me.project.joonggocore.domain.coupon.queue.CouponIssueQueue.Retry;
 import me.project.joonggocore.exception.AppException;
+import me.project.joonggocore.domain.coupon.outbox.CouponIssueReceipt;
+import me.project.joonggocore.service.CouponIssueOutbox;
 import me.project.joonggocore.service.CouponIssueService;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -23,6 +25,7 @@ public class CouponIssueWorker {
 
     private final CouponIssueQueue queue;
     private final CouponIssueService issueService;
+    private final CouponIssueOutbox outbox;
     private final RedissonClient redis;
     private Clock clock = Clock.systemUTC();
     private static final int MAX_ATTEMPTS = 5;
@@ -33,14 +36,14 @@ public class CouponIssueWorker {
 
     @Scheduled(fixedDelayString = "${coupon.issue.worker.poll-delay-ms:250}")
     public void poll() {
-        queue.transfer(100);
-
         RLock lock = redis.getLock("coupon:issue:worker");
         if (!lock.tryLock()) {
             return;
         }
 
         try {
+            publishPending();
+            queue.transfer(100);
             for (int i = 0; i < 100 && lock.isHeldByCurrentThread(); i++) {
                 CouponIssueJob job = queue.peek();
                 if (job == null || !process(job)) {
@@ -54,6 +57,12 @@ public class CouponIssueWorker {
         }
     }
 
+    private void publishPending() {
+        for (CouponIssueReceipt receipt : outbox.pending(0, 100)) {
+            queue.enqueue(receipt.job());
+        }
+    }
+
     private boolean process(CouponIssueJob job) {
         Retry retry = queue.retry(job);
         long now = clock.millis();
@@ -63,7 +72,8 @@ public class CouponIssueWorker {
 
         String result;
         try {
-            result = retry.attempts() >= MAX_ATTEMPTS ? reconcile(job) : issue(job);
+            result = retry.attempts() >= MAX_ATTEMPTS
+                    ? outbox.finish(job, reconcile(job)) : issue(job);
         } catch (RuntimeException failure) {
             int attempts = Math.min(MAX_ATTEMPTS, retry.attempts() + 1);
             queue.defer(job, new Retry(attempts, now + (1_000L << (attempts - 1))));
@@ -83,11 +93,10 @@ public class CouponIssueWorker {
 
     private String issue(CouponIssueJob job) {
         try {
-            issueService.issueQueuedCoupon(job);
-            return "ISSUED";
+            return outbox.issue(job);
         } catch (AppException e) {
             log.info("Coupon request {} rejected with {}", job.id(), e.getErrorCode());
-            return e.getErrorCode().name();
+            return outbox.finish(job, e.getErrorCode().name());
         }
     }
 }

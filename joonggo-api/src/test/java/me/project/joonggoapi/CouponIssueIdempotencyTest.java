@@ -6,7 +6,7 @@ import me.project.joonggocore.domain.coupon.queue.CouponIssueJob;
 import me.project.joonggocore.domain.coupon.queue.CouponIssueQueue;
 import me.project.joonggocore.domain.coupon.repository.mysql.CouponJpaRepository;
 import org.junit.jupiter.api.Test;
-import org.redisson.api.RedissonClient;
+import me.project.joonggocore.service.CouponIssueOutbox;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,7 +40,7 @@ class CouponIssueIdempotencyTest {
     @Autowired
     private CouponIssueQueue queue;
     @Autowired
-    private RedissonClient redis;
+    private CouponIssueOutbox outbox;
 
     @Test
     void concurrentReplaysShareOneQueuedRequestAndConflictingBodyIsRejected() throws Exception {
@@ -81,14 +81,17 @@ class CouponIssueIdempotencyTest {
 
         UUID id = UUID.fromString(json.readTree(first.getResponse().getContentAsString())
                 .get("requestId").asText());
-        var mapping = redis.getBucket("coupon:{issue}:idempotency:" + key);
-        assertThat(mapping.remainTimeToLive()).isEqualTo(-1);
+        assertThat(queue.status(id)).isNull();
+        var pending = outbox.pending(0, 100);
+        assertThat(pending).hasSize(1);
+        assertThat(outbox.findByKey(key)).isPresent();
+        pending.forEach(row -> queue.enqueue(row.job()));
         queue.transfer(100);
         CouponIssueJob job = queue.peek();
         assertThat(job.id()).isEqualTo(id);
-        assertThat(queue.complete(job, "ISSUED")).isTrue();
+        assertThat(queue.complete(job, outbox.finish(job, "ISSUED"))).isTrue();
         assertThat(queue.peek()).isNull();
-        assertThat(mapping.remainTimeToLive()).isBetween(1L, 86_400_000L);
+        assertThat(outbox.find(id).orElseThrow().getCompletedAt()).isNotNull();
 
         assertThat(accepted(key, couponId).getResponse().getContentAsString())
                 .isEqualTo(first.getResponse().getContentAsString());
