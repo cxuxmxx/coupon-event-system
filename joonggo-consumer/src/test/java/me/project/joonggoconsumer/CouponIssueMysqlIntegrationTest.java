@@ -47,7 +47,7 @@ class CouponIssueMysqlIntegrationTest {
         long coupon = coupons.save(Coupon.builder().name("Limited").totalQuantity(100)
                 .issuedStartAt(now.minusHours(1)).issuedEndAt(now.plusHours(1)).build()).getId();
         List<Member> participants = members.saveAll(IntStream.rangeClosed(1, 1000)
-                .mapToObj(i -> Member.builder().age(i).nickname("member-" + i).build()).toList());
+                .<Member>mapToObj(i -> Member.builder().age(i).nickname("member-" + i).build()).toList());
         List<CouponIssueJob> jobs = participants.stream()
                 .map(member -> new CouponIssueJob(UUID.randomUUID(), coupon, member.getId(), now))
                 .toList();
