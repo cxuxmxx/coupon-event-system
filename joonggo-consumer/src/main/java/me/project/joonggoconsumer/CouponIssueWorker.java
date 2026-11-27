@@ -6,7 +6,6 @@ import me.project.joonggocore.domain.coupon.queue.CouponIssueJob;
 import me.project.joonggocore.domain.coupon.queue.CouponIssueQueue;
 import me.project.joonggocore.domain.coupon.queue.CouponIssueQueue.Retry;
 import me.project.joonggocore.exception.AppException;
-import me.project.joonggocore.domain.coupon.outbox.CouponIssueReceipt;
 import me.project.joonggocore.service.CouponIssueOutbox;
 import me.project.joonggocore.service.CouponIssueService;
 import org.redisson.api.RLock;
@@ -14,6 +13,7 @@ import org.redisson.api.RedissonClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.core.task.TaskRejectedException;
 
 import java.time.Clock;
 
@@ -27,6 +27,7 @@ public class CouponIssueWorker {
     private final CouponIssueService issueService;
     private final CouponIssueOutbox outbox;
     private final RedissonClient redis;
+    private final CouponLaneExecutor lanes;
     private Clock clock = Clock.systemUTC();
     private static final int MAX_ATTEMPTS = 5;
 
@@ -36,17 +37,50 @@ public class CouponIssueWorker {
 
     @Scheduled(fixedDelayString = "${coupon.issue.worker.poll-delay-ms:250}")
     public void poll() {
-        RLock lock = redis.getLock("coupon:issue:worker");
+        RLock relay = redis.getLock("coupon:issue:relay");
+        if (relay.tryLock()) {
+            try {
+                publishPending();
+                queue.transfer(100);
+            } catch (RuntimeException e) {
+                log.warn("Coupon relay could not publish pending requests", e);
+            } finally {
+                if (relay.isHeldByCurrentThread()) {
+                    relay.unlock();
+                }
+            }
+        }
+
+        for (String couponId : queue.readyCoupons(clock.millis(), 32)) {
+            try {
+                lanes.execute(() -> {
+                    try {
+                        processLane(Long.parseLong(couponId));
+                    } catch (RuntimeException failure) {
+                        log.warn("Coupon lane {} could not be processed", couponId, failure);
+                    }
+                });
+            } catch (TaskRejectedException busy) {
+                break;
+            }
+        }
+    }
+
+    private void processLane(long couponId) {
+        RLock lock = redis.getLock("coupon:issue:lane:" + couponId);
         if (!lock.tryLock()) {
             return;
         }
 
         try {
-            publishPending();
-            queue.transfer(100);
+            queue.schedule(couponId, clock.millis() + 250);
             for (int i = 0; i < 100 && lock.isHeldByCurrentThread(); i++) {
-                CouponIssueJob job = queue.peek();
-                if (job == null || !process(job)) {
+                CouponIssueJob job = queue.peek(couponId);
+                if (job == null) {
+                    return;
+                }
+                if (!process(job)) {
+                    queue.schedule(couponId, Math.max(clock.millis() + 250, queue.retry(job).nextAttemptAt()));
                     return;
                 }
             }
@@ -58,9 +92,11 @@ public class CouponIssueWorker {
     }
 
     private void publishPending() {
-        for (CouponIssueReceipt receipt : outbox.pending(0, 100)) {
+        var page = outbox.pending(queue.relayCursor(), 100);
+        for (var receipt : page) {
             queue.enqueue(receipt.job());
         }
+        queue.advanceRelayCursor(page.size() < 100 ? 0 : page.get(page.size() - 1).getId());
     }
 
     private boolean process(CouponIssueJob job) {

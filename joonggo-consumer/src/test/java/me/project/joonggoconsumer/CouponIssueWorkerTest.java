@@ -66,24 +66,24 @@ class CouponIssueWorkerTest {
         queue.enqueue(first);
         queue.enqueue(second);
         assertThat(queue.status(first.id())).isEqualTo("PENDING");
-        assertThat(queue.peek()).isNull();
+        assertThat(queue.peek(couponId)).isNull();
 
         CouponIssueOutbox unavailable = mock(CouponIssueOutbox.class);
         doThrow(new DataAccessResourceFailureException("database unavailable"))
                 .when(unavailable).issue(first);
-        CouponIssueWorker failedWorker = new CouponIssueWorker(queue, issueService, unavailable, redis);
+        CouponIssueWorker failedWorker = new CouponIssueWorker(queue, issueService, unavailable, redis, new CouponLaneExecutor(Runnable::run));
         failedWorker.poll();
         assertThat(queue.retry(first).attempts()).isEqualTo(1);
-        assertThat(queue.peek()).isEqualTo(first);
+        assertThat(queue.peek(couponId)).isEqualTo(first);
         assertThat(queue.status(first.id())).isEqualTo("PENDING");
 
-        CouponIssueWorker worker = new CouponIssueWorker(queue, issueService, outbox, redis);
+        CouponIssueWorker worker = new CouponIssueWorker(queue, issueService, outbox, redis, new CouponLaneExecutor(Runnable::run));
         worker.useClock(Clock.offset(Clock.systemUTC(), Duration.ofMinutes(1)));
         worker.poll();
 
         assertThat(queue.status(first.id())).isEqualTo("ISSUED");
         assertThat(queue.status(second.id())).isEqualTo("INVALID_COUPON_QUANTITY");
-        assertThat(queue.peek()).isNull();
+        assertThat(queue.peek(couponId)).isNull();
 
         CouponIssueJob replay = new CouponIssueJob(UUID.randomUUID(), couponId, firstMember, requestedAt);
         queue.enqueue(replay);
