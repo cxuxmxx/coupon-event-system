@@ -4,42 +4,44 @@
 
 ## 아키텍처
 
-![선착순 쿠폰 발급 시스템 아키텍처](docs/images/coupon-issue-architecture.png)
-
-<details>
-<summary>Mermaid 다이어그램 보기</summary>
-
 ```mermaid
 flowchart TB
-    Client["사용자"]
-    API["API 서버 · joonggo-api"]
-    Worker["발급 워커 · joonggo-consumer"]
-    DB[("MySQL")]
+    Client["회원"]
+    API["발급 API"]
+    Outbox[("MySQL 접수 원장")]
+    Relay["Outbox 발행"]
+    Worker["쿠폰별 발급 워커"]
+    Stock[("MySQL 쿠폰 재고·발급 이력")]
 
     subgraph Redis["Redis"]
         Policy["쿠폰 정책 캐시"]
-        Requests["Issue Request Queue"]
-        Issues["Issue Queue"]
-        Status["발급 상태"]
-        Idempotency["멱등키 매핑"]
+        Requests["요청 큐"]
+        Lanes["쿠폰별 FIFO 큐"]
+        DLQ["실패 요청"]
     end
 
-    Client -->|"발급 요청 · 결과 조회"| API
+    Client -->|"JWT · 발급·조회"| API
     API -->|"발급 기간 확인"| Policy
-    API -->|"멱등키 확인"| Idempotency
-    API -->|"새 요청 등록"| Requests
-    Requests -->|"워커가 Lua로 FIFO 이관"| Issues
-    Issues -->|"워커가 큐의 첫 요청 조회"| Worker
-    Worker -->|"수량 차감 · 발급 이력 저장"| DB
-    Worker -->|"DB 커밋 후 결과 기록"| Status
-    API -->|"요청 ID로 조회"| Status
+    API -->|"202 전 접수 커밋 · 상태 조회"| Outbox
+    Outbox -->|"미완료 접수 읽기"| Relay
+    Relay --> Requests
+    Requests -->|"쿠폰별 이관"| Lanes
+    Lanes --> Worker
+    Worker -->|"수량 차감 · 이력 저장"| Stock
+    Worker -->|"성공 상태를 같은 트랜잭션에 기록"| Outbox
+    Worker -->|"확정된 기술 실패 격리"| DLQ
 ```
 
+API는 MySQL에 접수를 저장한 뒤 `202 Accepted`를 반환합니다. Redis 큐를 잃어도 워커는 MySQL의 미완료 요청을 다시 발행합니다. 같은 쿠폰은 접수 순서대로 처리하고, 서로 다른 쿠폰은 병렬로 발급합니다.
+
+[스키마 변경](docs/mysql-migrations.md)과 [워커 재시도·DLQ 절차](docs/coupon-worker-recovery.md)를 참고하세요.
+
+<details>
+<summary>접수 원장 도입 전 아키텍처 이미지</summary>
+
+![이전 Redis 중심 쿠폰 발급 아키텍처](docs/images/coupon-issue-architecture.png)
+
 </details>
-
-쿠폰 정책이 캐시에 없으면 API 서버가 DB에서 발급 기간을 읽어 캐시에 저장합니다. API 서버는 접수 시각이 발급 기간 안에 든 요청만 큐에 등록합니다.
-
-발급 워커는 쿠폰 행을 잠근 상태로 수량을 차감하고 발급 이력을 같은 트랜잭션에 저장합니다. DB에 일시적으로 장애가 나면 워커는 요청을 큐에 남겨 두고 다음 폴링에서 다시 처리합니다. DB 커밋 뒤 같은 요청이 다시 들어와도 발급 이력을 먼저 확인하므로 수량은 한 번만 차감됩니다.
 
 ## 모듈 구성
 
@@ -54,13 +56,15 @@ API 서버와 발급 워커는 각각 `joonggo-core`에 의존하며 별도 프�
 
 ## 발급 API
 
+[쿠폰 API 인증 설정](docs/coupon-api-auth.md)을 참고하세요.
+
 | 메서드와 경로 | 응답 |
 | --- | --- |
 | `POST /api/v2/coupon/issue` | `202 Accepted`, 요청 ID와 조회 URL |
-| `GET /api/v2/coupon/issue/{requestId}` | `PENDING`, `ISSUED`, 또는 실패 코드와 함께 `REJECTED` |
+| `GET /api/v2/coupon/issue/{requestId}` | `PENDING`, `ISSUED`, `REJECTED`(업무 거절), `FAILED`(기술 실패) |
 | `POST /api/v1/coupon/issue` | 동기 발급 결과 |
 
-v2는 `couponId`와 `memberId`를 요청 본문으로 받습니다. 완료 결과는 24시간 동안 조회할 수 있습니다. v2 요청은 FIFO 순서로 처리합니다. v1과 v2는 DB의 같은 쿠폰 재고를 사용합니다.
+v2는 요청 본문에서 `couponId`를 받고 토큰에서 회원 ID를 확인합니다. 완료 결과는 본인 요청에 한해 24시간 동안 조회할 수 있습니다. v2 요청은 FIFO 순서로 처리합니다. v1과 v2는 DB의 같은 쿠폰 재고를 사용합니다.
 
 ### 발급 요청 재시도
 
@@ -74,7 +78,7 @@ v2 POST에 `Idempotency-Key` 헤더를 보낼 수 있습니다. 처음 발급 �
 
 처리 중에는 키가 유지되고, 발급 결과를 기록한 뒤에는 24시간 동안 같은 키를 재사용할 수 있습니다. 최신 발급 결과는 조회 URL에서 확인하세요.
 
-기존 인스턴스를 교체할 때는 발급 워커를 먼저 업데이트하세요. 새 API는 멱등키가 들어온 요청에 키를 포함해 큐에 기록합니다.
+발급 요청의 멱등키는 인증된 회원별로 구분합니다. 배포 순서는 스키마 변경과 워커 전환 절차를 참고하세요.
 
 ## 로컬 실행
 

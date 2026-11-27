@@ -3,10 +3,8 @@ package me.project.joonggoapi.application;
 import lombok.RequiredArgsConstructor;
 import me.project.joonggoapi.infrastructure.redis.CouponIssuePolicyCache;
 import me.project.joonggocore.domain.coupon.queue.CouponIssueJob;
-import me.project.joonggocore.domain.coupon.queue.CouponIssueQueue;
 import me.project.joonggocore.domain.coupon.outbox.CouponIssueReceipt;
 import me.project.joonggocore.service.CouponIssueOutbox;
-import org.redisson.client.RedisException;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -20,13 +18,11 @@ import java.util.UUID;
 public class AsyncCouponIssueService {
 
     private final CouponIssuePolicyCache policyCache;
-    private final CouponIssueQueue queue;
     private final CouponIssueOutbox outbox;
 
     public Result submit(long couponId, long memberId, String idempotencyKey) {
         Optional<CouponIssueJob> existing = idempotencyKey == null ? Optional.empty()
-                : outbox.findByKey(idempotencyKey).map(CouponIssueReceipt::job)
-                        .or(() -> findLegacyKey(idempotencyKey));
+                : outbox.findByKey(memberId, idempotencyKey).map(CouponIssueReceipt::job);
         CouponIssueJob job = existing.orElseGet(() -> {
             LocalDateTime requestedAt = LocalDateTime.now();
             policyCache.validate(couponId, requestedAt);
@@ -39,14 +35,6 @@ public class AsyncCouponIssueService {
         return new Result(job.id(), Status.PENDING, null);
     }
 
-    private Optional<CouponIssueJob> findLegacyKey(String key) {
-        try {
-            return queue.findByIdempotencyKey(key);
-        } catch (RedisException unavailable) {
-            return Optional.empty();
-        }
-    }
-
     private CouponIssueJob accept(CouponIssueJob job) {
         try {
             return outbox.accept(job);
@@ -54,7 +42,7 @@ public class AsyncCouponIssueService {
             if (job.idempotencyKey() == null) {
                 throw e;
             }
-            return outbox.findByKey(job.idempotencyKey())
+            return outbox.findByKey(job.memberId(), job.idempotencyKey())
                     .map(CouponIssueReceipt::job)
                     .orElseThrow(() -> e);
         }
@@ -63,12 +51,10 @@ public class AsyncCouponIssueService {
     public static class IdempotencyConflictException extends RuntimeException {
     }
 
-    public Optional<Result> findResult(UUID requestId) {
-        Optional<CouponIssueReceipt> receipt = outbox.find(requestId);
-        Optional<String> value = receipt.isPresent()
-                ? receipt.filter(row -> !row.expiredAt(LocalDateTime.now()))
-                        .map(row -> row.getResult() == null ? "PENDING" : row.getResult())
-                : Optional.ofNullable(queue.status(requestId));
+    public Optional<Result> findResult(UUID requestId, long memberId) {
+        Optional<String> value = outbox.find(requestId)
+                .filter(row -> row.getMemberId() == memberId && !row.expiredAt(LocalDateTime.now()))
+                .map(row -> row.getResult() == null ? "PENDING" : row.getResult());
         return value.map(status -> switch (status) {
                     case "PENDING" -> new Result(requestId, Status.PENDING, null);
                     case "ISSUED" -> new Result(requestId, Status.ISSUED, null);

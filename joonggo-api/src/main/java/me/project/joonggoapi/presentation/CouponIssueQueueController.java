@@ -1,6 +1,9 @@
 package me.project.joonggoapi.presentation;
 
 import lombok.RequiredArgsConstructor;
+import me.project.joonggoapi.security.CouponMember;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import me.project.joonggoapi.application.AsyncCouponIssueService;
 import me.project.joonggoapi.application.AsyncCouponIssueService.IdempotencyConflictException;
 import me.project.joonggoapi.application.AsyncCouponIssueService.Result;
@@ -31,10 +34,11 @@ public class CouponIssueQueueController {
 
     @PostMapping
     public ResponseEntity<Result> issue(@RequestBody CouponIssueRequest request,
-                                        @RequestHeader(value = "Idempotency-Key", required = false) String key) {
-        if (request.couponId() == null || request.couponId() <= 0
-                || request.memberId() == null || request.memberId() <= 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "couponId and memberId must be positive");
+                                        @RequestHeader(value = "Idempotency-Key", required = false) String key,
+                                        @AuthenticationPrincipal Jwt jwt) {
+        long memberId = CouponMember.from(jwt, request.memberId());
+        if (request.couponId() == null || request.couponId() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "couponId must be positive");
         }
 
         if (key != null && !IDEMPOTENCY_KEY.matcher(key).matches()) {
@@ -43,7 +47,7 @@ public class CouponIssueQueueController {
 
         Result result;
         try {
-            result = issueService.submit(request.couponId(), request.memberId(), key);
+            result = issueService.submit(request.couponId(), memberId, key);
         } catch (IdempotencyConflictException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Idempotency-Key is already used with a different request", e);
@@ -54,8 +58,8 @@ public class CouponIssueQueueController {
     }
 
     @GetMapping("/{requestId}")
-    public Result status(@PathVariable UUID requestId) {
-        return issueService.findResult(requestId)
+    public Result status(@PathVariable UUID requestId, @AuthenticationPrincipal Jwt jwt) {
+        return issueService.findResult(requestId, CouponMember.from(jwt, null))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
     }
 }

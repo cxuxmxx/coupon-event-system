@@ -31,7 +31,7 @@ public class CouponIssueOutbox {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public CouponIssueJob accept(CouponIssueJob job) {
-        String hash = keyHash(job.idempotencyKey());
+        String hash = job.idempotencyKey() == null ? null : keyHash(job.memberId() + ":" + job.idempotencyKey());
         if (hash != null) {
             var existing = receipts.lockByKeyHash(hash);
             if (existing.isPresent()) {
@@ -51,8 +51,12 @@ public class CouponIssueOutbox {
     }
 
     @Transactional(readOnly = true)
-    public Optional<CouponIssueReceipt> findByKey(String key) {
-        return receipts.findByKeyHash(keyHash(key)).filter(row -> !row.expiredAt(LocalDateTime.now()));
+    public Optional<CouponIssueReceipt> findByKey(long memberId, String key) {
+        LocalDateTime now = LocalDateTime.now();
+        return receipts.findByKeyHash(keyHash(memberId + ":" + key))
+                .filter(row -> !row.expiredAt(now))
+                .or(() -> receipts.findByKeyHash(keyHash(key))
+                        .filter(row -> row.getMemberId() == memberId && !row.expiredAt(now)));
     }
 
     @Transactional(readOnly = true)
